@@ -1,25 +1,32 @@
 {
-  "name": "hive",
-  "private": true,
+  "name": "envio-indexer",
   "version": "0.1.0",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
-  "dependencies": {
-    "@rainbow-me/rainbowkit": "^2.2.9",
-    "@tanstack/react-query": "^5.55.3",
-    "next": "^15.3.3",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "viem": "2.31.7",
-    "wagmi": "^2.17.4"
+    "clean": "tsc --clean",
+    "build": "tsc --build",
+    "watch": "tsc --watch",
+    "mocha": "ts-mocha test/**/*.ts",
+    "codegen": "envio codegen",
+    "dev": "envio dev",
+    "start": "envio start",
+    "test": "pnpm mocha"
   },
   "devDependencies": {
-    "@types/node": "^20.14.8",
-    "@types/react": "^19.1.8",
-    "eslint-config-next": "^15.1.7",
-    "typescript": "5.5.4"
+    "@types/chai": "^4.3.11",    
+    "@types/mocha": "10.0.6",
+    "@types/node": "20.8.8",
+    "ts-mocha": "^10.0.0",
+    "typescript": "5.2.2",
+    "chai": "4.3.10",
+    "mocha": "10.2.0"
+  },
+  "dependencies": {
+    "envio": "2.30.1"
+  },
+  "optionalDependencies": {
+    "generated": "./generated"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
