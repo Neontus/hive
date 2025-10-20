@@ -1,0 +1,62 @@
+name: envio-indexer
+unordered_multichain_mode: true
+preload_handlers: true
+contracts:
+    - name: PoolManager
+      handler: src/EventHandlers.ts
+      events:
+          - event: Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)
+    - name: PositionManager
+      handler: src/EventHandlers.ts
+      events:
+          - event: Transfer(address indexed from, address indexed to, uint256 indexed id)
+networks:
+    - id: 1
+      # Keep it 0 and HyperSync will automatically find the first block for your contracts
+      start_block: 0
+      contracts:
+          - name: PositionManager
+            address:
+                - 0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e
+            start_block: 18500000 # OPTIONAL: Override for contract deployed later
+          - name: PoolManager
+            address:
+                - "0x000000000004444c5dc75cB358380D2e3dE08A90"
+    - id: 10
+      start_block: 0
+      contracts:
+          - name: PositionManager
+            address:
+                - 0x3C3Ea4B57a46241e54610e5f022e5c45859A1017
+          - name: PoolManager
+            address:
+                - 0x9a13F98Cb987694C9F086b1F5eB990EeA8264Ec3
+    - id: 42161
+      start_block: 0
+      contracts:
+          - name: PositionManager
+            address:
+                - 0xd88f38f930b7952f2db2432cb002e7abbf3dd869
+          - name: PoolManager
+            address:
+                - 0x360e68faccca8ca495c1b759fd9eee466db9fb32
+
+    - id: 84532  # Base Sepolia Testnet
+      start_block: 0
+      contracts:
+          - name: PositionManager
+            address:
+                - 0x4b2c77d209d3405f41a037ec6c77f7f5b8e2ca80
+          - name: PoolManager
+            address:
+                - 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408
+
+    - id: 11155111  # Sepolia Testnet
+      start_block: 0
+      contracts:
+          - name: PositionManager
+            address:
+                - 0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4
+          - name: PoolManager
+            address:
+                - 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543
