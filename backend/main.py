@@ -10,6 +10,7 @@ import os
 from dotenv import load_dotenv
 import re
 import hypersync
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -215,8 +216,38 @@ async def get_swaps(
         print(f"[API] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+PYTH_API_URL = "https://hermes.pyth.network"
 
+@app.get('/api/price')
+async def get_price(
+    symbol: str = Query(..., description="Asset symbol, e.g., 'ETH/USD'"),
+    timestamp: int = Query(..., description="Unix timestamp for the price data")
+):
+    """Fetch current price data (stub implementation)"""
 
+    res = requests.get(PYTH_API_URL + '/v2/updates/price/latest', params = {
+        "ids" : [symbol],
+        "timestamp" : timestamp
+    })
+
+    return res.json()
+
+@app.get('/pnl')
+async def get_pnl(
+    trade_id: str = Query(..., description="Trade identifier"),
+):
+    trade_date = "2024-01-01"  # Placeholder
+    entry_price = 1000.0      # Placeholder
+    current_price = 1200.0    # Placeholder
+    pnl = ((current_price - entry_price) / entry_price) * 100
+
+    return {
+        "trade_id": trade_id,
+        "trade_date": trade_date,
+        "entry_price": entry_price,
+        "current_price": current_price,
+        "pnl_percentage": pnl
+    }
 
 if __name__ == "__main__":
     import uvicorn
