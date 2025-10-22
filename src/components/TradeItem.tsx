@@ -9,7 +9,7 @@ interface TradeItemProps {
 
 export const TradeItem = ({ trade, isSelected, onSelect }: TradeItemProps) => {
   return (
-    <div 
+    <div
       className={`${styles.tradeItem} ${isSelected ? styles.tradeItemSelected : ''}`}
       onClick={onSelect}
     >
@@ -19,7 +19,7 @@ export const TradeItem = ({ trade, isSelected, onSelect }: TradeItemProps) => {
         </span>
         <span className={styles.tradeTimestamp}>{trade.timestamp}</span>
       </div>
-      
+
       <div className={styles.tradeDetails}>
         <div className={styles.tradeTokens}>
           {trade.amountIn} {trade.tokenIn} → {trade.amountOut} {trade.tokenOut}

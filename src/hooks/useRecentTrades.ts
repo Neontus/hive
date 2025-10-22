@@ -27,6 +27,14 @@ interface SwapLog {
   data: string;
   address: string;
   topics: (string | null)[];
+  // Pyth price enrichment fields from backend
+  token0_address?: string;
+  token1_address?: string;
+  token0_symbol?: string;
+  token1_symbol?: string;
+  entry_price_token0_usd?: number | null;
+  entry_price_token1_usd?: number | null;
+  block_timestamp?: number;
 }
 
 interface SwapBlock {
@@ -46,7 +54,7 @@ interface SwapTransaction {
 
 interface SwapsResponse {
   success: boolean;
-  logs: SwapLog[];
+  swaps: SwapLog[];  // Changed from 'logs' to match backend response
   blocks: SwapBlock[];
   transactions: SwapTransaction[];
   error?: string;
@@ -193,7 +201,7 @@ export const useRecentTrades = () => {
         throw new Error(result.error || 'Failed to fetch swap data');
       }
 
-      const transformedTrades: Trade[] = result.logs
+      const transformedTrades: Trade[] = result.swaps
         .map((log) => {
           const topic1 = log.topics[1];
           const block = result.blocks.find(b => b.number === log.block_number);
@@ -214,6 +222,10 @@ export const useRecentTrades = () => {
           const receivingToken0 = eventData.amount0 < 0n;
           const timestampBigInt = block.timestamp ? BigInt(block.timestamp) : 0n;
 
+          // Extract Pyth price data
+          const entryPriceToken0 = log.entry_price_token0_usd;
+          const entryPriceToken1 = log.entry_price_token1_usd;
+
           return {
             id: `${log.block_number}-${log.log_index}`,
             tokenIn: receivingToken0 ? token1Info.symbol : token0Info.symbol,
@@ -229,6 +241,9 @@ export const useRecentTrades = () => {
             timestamp: timestampBigInt > 0n ? formatTimestamp(timestampBigInt) : 'Unknown',
             txHash: tx.hash || '',
             type: receivingToken0 ? 'buy' : 'sell',
+            // Add Pyth entry prices
+            entryPriceTokenIn: receivingToken0 ? entryPriceToken1 : entryPriceToken0,
+            entryPriceTokenOut: receivingToken0 ? entryPriceToken0 : entryPriceToken1,
           } as Trade;
         })
         .filter((trade): trade is Trade => trade !== null)
