@@ -97,9 +97,241 @@
   line-height: 1.5;
 }
 
+/* Feed specific styles */
+.feedContainer {
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sortToggle {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  width: 100%;
+  justify-content: center;
+}
+
+.sortToggle button {
+  padding: 0.5rem 1.5rem;
+  border: 1px solid #eaeaea;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.sortToggle button:hover {
+  border-color: #0d76fc;
+  color: #0d76fc;
+}
+
+.sortToggle button.active {
+  background: #0d76fc;
+  color: white;
+  border-color: #0d76fc;
+}
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.error {
+  background-color: #fee;
+  color: #c33;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #666;
+  font-size: 1rem;
+}
+
+.loadMoreButton {
+  padding: 0.75rem 2rem;
+  margin-top: 2rem;
+  background: #0d76fc;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.2s ease;
+}
+
+.loadMoreButton:hover:not(:disabled) {
+  background: #0a5bd4;
+}
+
+.loadMoreButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.totalCount {
+  margin-top: 1rem;
+  text-align: center;
+  color: #999;
+  font-size: 0.9rem;
+}
+
+/* Post card specific styles */
+.card .header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  gap: 1rem;
+}
+
+.card .userInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.card .username {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.card .timestamp {
+  font-size: 0.85rem;
+  color: #999;
+}
+
+.card .pnlBadge {
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.card .tradeInfo {
+  background: #f9f9f9;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.card .tradeAmounts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.card .amount {
+  padding: 0.25rem 0.5rem;
+  background: white;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.card .arrow {
+  color: #0d76fc;
+  font-weight: bold;
+}
+
+.card .prices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.card .priceRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card .label {
+  color: #666;
+  font-weight: 500;
+}
+
+.card .value {
+  font-weight: 600;
+  color: #333;
+}
+
+.card .content {
+  margin-bottom: 1rem;
+}
+
+.card .content p {
+  margin: 0;
+  color: #333;
+  line-height: 1.5;
+}
+
+.card .footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+  font-size: 0.85rem;
+}
+
+.card .footerLeft {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.card .txLink {
+  color: #0d76fc;
+  text-decoration: none;
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.card .txLink:hover {
+  text-decoration: underline;
+}
+
+.card .exitedBadge {
+  background: #f0f0f0;
+  color: #666;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 @media (max-width: 600px) {
   .grid {
     width: 100%;
     flex-direction: column;
+  }
+
+  .card .header {
+    flex-direction: column;
+  }
+
+  .card .pnlBadge {
+    align-self: flex-start;
+  }
+
+  .sortToggle {
+    flex-wrap: wrap;
   }
 }

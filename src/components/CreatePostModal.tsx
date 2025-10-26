@@ -3,26 +3,31 @@ import { useAccount } from 'wagmi';
 import { Trade, CreatePostData } from '../types/trade';
 import { TradeItem } from './TradeItem';
 import { useRecentTrades } from '../hooks/useRecentTrades';
+import { createPost } from '../services/api';
 import styles from '../styles/CreatePostModal.module.css';
 
 interface CreatePostModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: CreatePostData) => void;
+  onSubmit?: (data: CreatePostData) => void;
+  onPostCreated?: () => void;
 }
 
-export const CreatePostModal = ({ isOpen, onClose, onSubmit }: CreatePostModalProps) => {
-  const { isConnected } = useAccount();
+export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: CreatePostModalProps) => {
+  const { isConnected, address } = useAccount();
   const { trades, isLoading, error } = useRecentTrades();
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [reasoning, setReasoning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [username, setUsername] = useState('trader');
 
   useEffect(() => {
     if (!isOpen) {
       setSelectedTrade(null);
       setReasoning('');
       setIsSubmitting(false);
+      setSubmitError(null);
     }
   }, [isOpen]);
 
@@ -30,14 +35,37 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit }: CreatePostModalPr
     if (!selectedTrade || !reasoning.trim()) return;
 
     setIsSubmitting(true);
+    setSubmitError(null);
+
     try {
-      await onSubmit({
-        selectedTrade,
-        reasoning: reasoning.trim()
-      });
-      onClose();
+      // Try new API integration first
+      if (selectedTrade.txHash) {
+        await createPost({
+          username: username || 'trader',
+          tx_hash: selectedTrade.txHash,
+          content: reasoning.trim()
+        });
+
+        // Trigger parent refetch if callback provided
+        onPostCreated?.();
+        onClose();
+      } else {
+        throw new Error('Trade hash not found');
+      }
     } catch (error) {
-      console.error('Failed to submit post:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create post';
+
+      if (errorMessage.includes('404')) {
+        setSubmitError('Trade not found. Please wait a moment and try again.');
+      } else if (errorMessage.includes('403')) {
+        setSubmitError('This trade does not belong to your wallet.');
+      } else if (errorMessage.includes('409')) {
+        setSubmitError('This trade has already been posted.');
+      } else {
+        setSubmitError(errorMessage);
+      }
+
+      console.error('Failed to create post:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -168,19 +196,25 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit }: CreatePostModalPr
                   {reasoning.length}/200
                 </div>
               </div>
+
+              {submitError && (
+                <div className={styles.submitError}>
+                  {submitError}
+                </div>
+              )}
             </>
           )}
         </div>
 
         <div className={styles.footer}>
-          <button 
+          <button
             className={styles.cancelButton}
             onClick={onClose}
             disabled={isSubmitting}
           >
             Cancel
           </button>
-          <button 
+          <button
             className={styles.submitButton}
             onClick={handleSubmit}
             disabled={!selectedTrade || isSubmitting || !isConnected}
