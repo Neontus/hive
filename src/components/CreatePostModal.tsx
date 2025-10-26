@@ -4,7 +4,7 @@ import { Trade, CreatePostData } from '../types/trade';
 import { TradeItem } from './TradeItem';
 import { useRecentTrades } from '../hooks/useRecentTrades';
 import { useUser } from '../contexts/UserContext';
-import { createPost } from '../services/api';
+import { createPost, fetchPostedHashes } from '../services/api';
 import styles from '../styles/CreatePostModal.module.css';
 
 interface CreatePostModalProps {
@@ -22,6 +22,7 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
   const [reasoning, setReasoning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [postedHashes, setPostedHashes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!isOpen) {
@@ -29,7 +30,20 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
       setReasoning('');
       setIsSubmitting(false);
       setSubmitError(null);
+      return;
     }
+
+    // Fetch posted hashes when modal opens
+    const loadPostedHashes = async () => {
+      try {
+        const hashes = await fetchPostedHashes();
+        setPostedHashes(new Set(hashes.map(h => h.toLowerCase())));
+      } catch (err) {
+        console.error('Failed to fetch posted hashes:', err);
+      }
+    };
+
+    loadPostedHashes();
   }, [isOpen]);
 
   const handleSubmit = async () => {
@@ -123,18 +137,23 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
                   <div className={styles.error}>Failed to load trades</div>
                 ) : trades.length === 0 ? (
                   <div className={styles.noTrades}>No recent trades found</div>
-                ) : (
-                  <div className={styles.tradesList}>
-                    {trades.map((trade) => (
-                      <TradeItem
-                        key={trade.id}
-                        trade={trade}
-                        isSelected={selectedTrade?.id === trade.id}
-                        onSelect={() => setSelectedTrade(selectedTrade?.id === trade.id ? null : trade)}
-                      />
-                    ))}
-                  </div>
-                )}
+                ) : (() => {
+                  const availableTrades = trades.filter(t => !postedHashes.has(t.txHash.toLowerCase()));
+                  return availableTrades.length === 0 ? (
+                    <div className={styles.noTrades}>All recent trades have been posted</div>
+                  ) : (
+                    <div className={styles.tradesList}>
+                      {availableTrades.map((trade) => (
+                        <TradeItem
+                          key={trade.id}
+                          trade={trade}
+                          isSelected={selectedTrade?.id === trade.id}
+                          onSelect={() => setSelectedTrade(selectedTrade?.id === trade.id ? null : trade)}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {selectedTrade && (

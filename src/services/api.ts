@@ -38,6 +38,17 @@ export async function createPost(data: CreatePostRequest): Promise<Post> {
   return response.json();
 }
 
+export async function fetchPostedHashes(): Promise<string[]> {
+  const response = await fetch(`${API_URL}/api/posts/posted-hashes`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch posted hashes');
+  }
+
+  const data = await response.json();
+  return data.posted_hashes || [];
+}
+
 export async function fetchPosts(
   sort: 'recent' | 'pnl' = 'recent',
   limit: number = 20,

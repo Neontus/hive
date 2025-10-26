@@ -1,17 +1,27 @@
 import styles from '../styles/Home.module.css';
 import { Post } from '../types/post';
-import { getTokenSymbol, formatPnL } from '../utils/tokens';
+import { formatPnL, calculateVolumes } from '../utils/tokens';
 
 interface PostCardProps {
   post: Post;
 }
 
 export const PostCard = ({ post }: PostCardProps) => {
-  const tokenInSymbol = getTokenSymbol(post.token_in_address);
-  const tokenOutSymbol = getTokenSymbol(post.token_out_address);
-  const pnlData = post.pnl !== null && post.pnl !== undefined ? formatPnL(post.pnl) : null;
-  const etherscanUrl = `https://sepolia.etherscan.io/tx/${post.tx_hash}`;
+  // PnL calculation with N/A fallback
+  const pnlData = post.pnl !== null && post.pnl !== undefined && isFinite(post.pnl)
+    ? formatPnL(post.pnl)
+    : null;
+
+  const volumes = calculateVolumes(post.amount_in, post.amount_out, post.entry_price, post.exit_price);
   const createdDate = new Date(post.created_at).toLocaleString();
+
+  // Status badge: placeholder for unrealized/realized gains
+  const gainStatus = post.exited ? 'Realized Gains' : 'Unrealized Gains';
+
+  const handleTip = () => {
+    // TODO: Implement tipping functionality
+    console.log('Tip button clicked for post:', post.id);
+  };
 
   return (
     <div className={styles.card}>
@@ -19,49 +29,6 @@ export const PostCard = ({ post }: PostCardProps) => {
         <div className={styles.userInfo}>
           <span className={styles.username}>@{post.username}</span>
           <span className={styles.timestamp}>{createdDate}</span>
-        </div>
-        {pnlData && (
-          <div
-            className={styles.pnlBadge}
-            style={{
-              backgroundColor: pnlData.color,
-              color: '#fff',
-              padding: '4px 8px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              fontWeight: 'bold'
-            }}
-          >
-            {pnlData.text}
-          </div>
-        )}
-      </div>
-
-      <div className={styles.tradeInfo}>
-        <div className={styles.tradeAmounts}>
-          <span className={styles.amount}>{post.amount_in.toFixed(2)} {tokenInSymbol}</span>
-          <span className={styles.arrow}>→</span>
-          <span className={styles.amount}>{post.amount_out.toFixed(4)} {tokenOutSymbol}</span>
-        </div>
-        <div className={styles.prices}>
-          {post.entry_price && (
-            <div className={styles.priceRow}>
-              <span className={styles.label}>Entry:</span>
-              <span className={styles.value}>${post.entry_price.toFixed(2)}</span>
-            </div>
-          )}
-          {(post.current_price !== null && post.current_price !== undefined) && (
-            <div className={styles.priceRow}>
-              <span className={styles.label}>Current:</span>
-              <span className={styles.value}>${post.current_price.toFixed(2)}</span>
-            </div>
-          )}
-          {(post.exit_price !== null && post.exit_price !== undefined) && (
-            <div className={styles.priceRow}>
-              <span className={styles.label}>Exit:</span>
-              <span className={styles.value}>${post.exit_price.toFixed(2)}</span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -71,11 +38,36 @@ export const PostCard = ({ post }: PostCardProps) => {
 
       <div className={styles.footer}>
         <div className={styles.footerLeft}>
-          <a href={etherscanUrl} target="_blank" rel="noopener noreferrer" className={styles.txLink}>
-            {post.tx_hash.slice(0, 6)}...{post.tx_hash.slice(-4)}
-          </a>
-          {post.exited && <span className={styles.exitedBadge}>EXITED</span>}
+          <span className={styles.statusBadge}>
+            {gainStatus}
+          </span>
+          <span className={styles.volumeInfo}>
+            Entry: {volumes.entryVolume}
+          </span>
+          <span className={styles.volumeInfo}>
+            Exit: {post.exited ? volumes.exitVolume : 'Not Exited'}
+          </span>
+          <div
+            className={styles.pnlBadge}
+            style={{
+              backgroundColor: pnlData ? pnlData.color : '#ccc',
+              color: '#fff',
+              padding: '2px 6px',
+              borderRadius: '3px',
+              fontSize: '11px',
+              fontWeight: 'bold'
+            }}
+          >
+            PnL: {pnlData ? pnlData.text : 'N/A'}
+          </div>
         </div>
+        <button
+          className={styles.tipButton}
+          onClick={handleTip}
+          title="Tip this trader"
+        >
+          Tip
+        </button>
       </div>
     </div>
   );

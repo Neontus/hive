@@ -740,6 +740,7 @@ async def create_post(request: CreatePostRequest):
             'amount_out': 0.5,
             'tx_hash': request.tx_hash,
             'content': request.content,
+            'trade_timestamp': datetime.now().isoformat(),
             'exited': False
         }
 
@@ -758,6 +759,26 @@ async def create_post(request: CreatePostRequest):
     except Exception as e:
         print(f"[API] Error creating post: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/api/posts/posted-hashes')
+async def get_posted_hashes():
+    """Get list of tx_hashes that have already been posted"""
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: app.state.supabase.table('posts')
+                .select('tx_hash')
+                .execute()
+        )
+
+        hashes = [p['tx_hash'].lower() for p in (result.data or [])]
+        return {"posted_hashes": hashes}
+
+    except Exception as e:
+        print(f"[API] Error fetching posted hashes: {str(e)}")
+        return {"posted_hashes": []}
 
 
 @app.get('/api/posts')
@@ -798,44 +819,72 @@ async def get_posts(
 
         for post in posts:
             enriched_post = {**post}
+            post_id = post.get('id')
 
             try:
                 # Get entry price from Pyth
-                entry_feed_id = get_pyth_feed_id(post['token_out_address'])
+                token_out = post['token_out_address']
+                entry_feed_id = get_pyth_feed_id(token_out)
+                entry_price = None
 
-                if entry_feed_id:
-                    # Parse trade_timestamp
-                    if isinstance(post['trade_timestamp'], str):
-                        trade_dt = datetime.fromisoformat(post['trade_timestamp'].replace('Z', '+00:00'))
-                        trade_ts = int(trade_dt.timestamp())
-                    else:
-                        trade_ts = int(post['trade_timestamp'])
+                print(f"[API] Enriching post {post_id}: token_out={token_out}, feed_id={entry_feed_id}, trade_timestamp={post.get('trade_timestamp')}")
 
-                    # Get entry price at trade timestamp
-                    entry_price_data = await app.state.pyth_client.get_price_at_timestamp(
-                        entry_feed_id, trade_ts
-                    )
-                    entry_price = entry_price_data['price'] if entry_price_data else None
+                # Use trade_timestamp if available, fallback to created_at
+                timestamp_to_use = post.get('trade_timestamp') or post.get('created_at')
+
+                if entry_feed_id and timestamp_to_use:
+                    # Parse timestamp
+                    try:
+                        if isinstance(timestamp_to_use, str):
+                            trade_dt = datetime.fromisoformat(timestamp_to_use.replace('Z', '+00:00'))
+                            trade_ts = int(trade_dt.timestamp())
+                        else:
+                            trade_ts = int(timestamp_to_use)
+
+                        print(f"[API]   Getting historical price for feed {entry_feed_id} at timestamp {trade_ts}")
+
+                        # Get entry price at trade timestamp
+                        entry_price_data = await app.state.pyth_client.get_price_at_timestamp(
+                            entry_feed_id, trade_ts
+                        )
+                        entry_price = entry_price_data['price'] if entry_price_data else None
+                        print(f"[API]   Entry price: {entry_price}")
+                    except (ValueError, TypeError) as e:
+                        print(f"[API] Error parsing timestamp for post {post_id}: {e}")
+                        entry_price = None
                 else:
+                    print(f"[API]   No valid timestamp found (trade_timestamp={post.get('trade_timestamp')}, created_at={post.get('created_at')})")
                     entry_price = None
 
                 enriched_post['entry_price'] = entry_price
 
                 # Get current or exit price
                 if post.get('exited'):
-                    if post.get('exit_timestamp') and entry_feed_id:
-                        if isinstance(post['exit_timestamp'], str):
-                            exit_dt = datetime.fromisoformat(post['exit_timestamp'].replace('Z', '+00:00'))
-                            exit_ts = int(exit_dt.timestamp())
-                        else:
-                            exit_ts = int(post['exit_timestamp'])
+                    if entry_feed_id:
+                        try:
+                            # Use exit_timestamp if available, otherwise fallback to created_at
+                            exit_time = post.get('exit_timestamp') or post.get('created_at')
+                            if exit_time:
+                                if isinstance(exit_time, str):
+                                    exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                                    exit_ts = int(exit_dt.timestamp())
+                                else:
+                                    exit_ts = int(exit_time)
 
-                        exit_price_data = await app.state.pyth_client.get_price_at_timestamp(
-                            entry_feed_id, exit_ts
-                        )
-                        current_price = exit_price_data['price'] if exit_price_data else None
-                        enriched_post['exit_price'] = current_price
-                        enriched_post['current_price'] = None
+                                exit_price_data = await app.state.pyth_client.get_price_at_timestamp(
+                                    entry_feed_id, exit_ts
+                                )
+                                current_price = exit_price_data['price'] if exit_price_data else None
+                                enriched_post['exit_price'] = current_price
+                                enriched_post['current_price'] = None
+                            else:
+                                current_price = None
+                                enriched_post['exit_price'] = None
+                                enriched_post['current_price'] = None
+                        except (ValueError, TypeError) as e:
+                            print(f"[API] Error parsing exit_timestamp for post {post_id}: {e}")
+                            enriched_post['exit_price'] = None
+                            enriched_post['current_price'] = None
                     else:
                         current_price = None
                         enriched_post['exit_price'] = None
@@ -850,20 +899,38 @@ async def get_posts(
                             cached_price, cached_time = app.state.price_cache[cache_key]
                             if now - cached_time < 10:  # 10 second cache
                                 current_price = cached_price
+                                print(f"[API]   Using cached current price: {current_price}")
                             else:
                                 # Fetch fresh price
+                                print(f"[API]   Fetching fresh price for feed {entry_feed_id}")
                                 price_data_list = await app.state.pyth_client.get_latest_prices([entry_feed_id])
+                                print(f"[API]   price_data_list type: {type(price_data_list)}, content: {price_data_list}")
+                                # Try both with and without 0x prefix
                                 price_data = price_data_list.get(entry_feed_id) if isinstance(price_data_list, dict) else None
+                                if not price_data and entry_feed_id.startswith('0x'):
+                                    # Try without 0x prefix
+                                    price_data = price_data_list.get(entry_feed_id[2:])
+                                print(f"[API]   price_data: {price_data}")
                                 current_price = price_data['price'] if price_data else None
+                                print(f"[API]   Current price: {current_price}")
                                 app.state.price_cache[cache_key] = (current_price, now)
                         else:
                             # Fetch and cache
+                            print(f"[API]   Fetching initial price for feed {entry_feed_id}")
                             price_data_list = await app.state.pyth_client.get_latest_prices([entry_feed_id])
+                            print(f"[API]   price_data_list type: {type(price_data_list)}, content: {price_data_list}")
+                            # Try both with and without 0x prefix
                             price_data = price_data_list.get(entry_feed_id) if isinstance(price_data_list, dict) else None
+                            if not price_data and entry_feed_id.startswith('0x'):
+                                # Try without 0x prefix
+                                price_data = price_data_list.get(entry_feed_id[2:])
+                            print(f"[API]   price_data: {price_data}")
                             current_price = price_data['price'] if price_data else None
+                            print(f"[API]   Current price: {current_price}")
                             app.state.price_cache[cache_key] = (current_price, now)
                     else:
                         current_price = None
+                        print(f"[API]   No feed ID found for token_out")
 
                     enriched_post['current_price'] = current_price
                     enriched_post['exit_price'] = None
@@ -871,8 +938,12 @@ async def get_posts(
                 # Calculate P&L
                 pnl = None
                 price_for_pnl = enriched_post.get('exit_price') or enriched_post.get('current_price')
+                print(f"[API]   P&L calc: entry_price={entry_price}, price_for_pnl={price_for_pnl}")
                 if entry_price and price_for_pnl:
                     pnl = ((price_for_pnl - entry_price) / entry_price) * 100
+                    print(f"[API]   Calculated P&L: {pnl}%")
+                else:
+                    print(f"[API]   Cannot calculate P&L (entry_price or price_for_pnl is None)")
 
                 enriched_post['pnl'] = pnl
 

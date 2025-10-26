@@ -20,13 +20,12 @@ export const Navigation = () => {
         <div className={styles.container}>
           <div className={styles.brand}>
             <Image
-              src="/logo.svg"
+              src="/Hive_Logo.png"
               alt="Hive Logo"
-              width={32}
-              height={32}
+              width={120}
+              height={120}
               className={styles.logo}
             />
-            <span className={styles.brandText}>Hive</span>
           </div>
           
           <div className={styles.actions}>

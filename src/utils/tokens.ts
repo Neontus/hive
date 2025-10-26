@@ -17,3 +17,35 @@ export function formatPnL(pnl: number): { text: string; color: string; sign: str
   const text = `${sign}${pnl.toFixed(2)}%`;
   return { text, color, sign };
 }
+
+export function calculateVolumes(
+  amountIn: number,
+  amountOut: number,
+  entryPrice?: number,
+  exitPrice?: number
+): { entryVolume: string; exitVolume: string } {
+  let entryVolume = '-';
+  let exitVolume = '-';
+
+  // Calculate entry volume (amount_in * entry_price)
+  if (amountIn && entryPrice) {
+    const volume = amountIn * entryPrice;
+    entryVolume = volume >= 1000000
+      ? `$${(volume / 1000000).toFixed(2)}M`
+      : volume >= 1000
+      ? `$${(volume / 1000).toFixed(2)}K`
+      : `$${volume.toFixed(2)}`;
+  }
+
+  // Calculate exit volume (amount_out * exit_price)
+  if (amountOut && exitPrice) {
+    const volume = amountOut * exitPrice;
+    exitVolume = volume >= 1000000
+      ? `$${(volume / 1000000).toFixed(2)}M`
+      : volume >= 1000
+      ? `$${(volume / 1000).toFixed(2)}K`
+      : `$${volume.toFixed(2)}`;
+  }
+
+  return { entryVolume, exitVolume };
+}
