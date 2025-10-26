@@ -68,6 +68,7 @@ app.add_middleware(
 
 ALL_CONTRACT_ADDRESSES = [
     "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",  # Sepolia PoolManager
+    "0x3289680dd4d6c10bb19b899729cda5eef58aeff1",  # WETH/USDC Pool
 ]
 
 
@@ -247,12 +248,14 @@ async def get_trade_by_hash(tx_hash: str, hypersync_client):
     Returns dict with trade data or None if not found
     """
     try:
-        swap_topic = "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f"
+        # Support both Uniswap V3 and V4 swap topics
+        swap_topic_v4 = "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f"
+        swap_topic_v3 = "0xc42079f94a6350d7e6235f29174924f7e02e2149c267a8b7d8f3cb1aca6b266b"
         contract_addresses = [addr.lower() for addr in ALL_CONTRACT_ADDRESSES]
 
         log_selection = hypersync.LogSelection(
             address=contract_addresses,
-            topics=[[swap_topic]]
+            topics=[[swap_topic_v4, swap_topic_v3]]
         )
 
         field_selection = hypersync.FieldSelection(
@@ -415,12 +418,14 @@ async def get_swaps(
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
 
     try:
-        swap_topic = "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f"
+        # Support both Uniswap V3 and V4 swap topics
+        swap_topic_v4 = "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f"
+        swap_topic_v3 = "0xc42079f94a6350d7e6235f29174924f7e02e2149c267a8b7d8f3cb1aca6b266b"
         contract_addresses = [addr.lower() for addr in ALL_CONTRACT_ADDRESSES]
 
         log_selection = hypersync.LogSelection(
             address=contract_addresses,
-            topics=[[swap_topic]]
+            topics=[[swap_topic_v4, swap_topic_v3]]
         )
 
         field_selection = hypersync.FieldSelection(

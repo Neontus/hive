@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { fetchPosts } from '../services/api';
 import { Post } from '../types/post';
 
-export function useFeedPosts(sort: 'recent' | 'pnl' | 'tipped' = 'recent', pageSize: number = 20) {
+export function useFeedPosts(sort: 'recent' | 'pnl' | 'tipped' = 'recent', pageSize: number = 20, viewerWallet?: string) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -16,21 +16,34 @@ export function useFeedPosts(sort: 'recent' | 'pnl' | 'tipped' = 'recent', pageS
 
       try {
         const currentOffset = reset ? 0 : offset;
-        const result = await fetchPosts(sort, pageSize, currentOffset);
+        const result = await fetchPosts(sort, pageSize, currentOffset, viewerWallet);
 
-        setPosts(reset ? result.posts : (prevPosts) => [...prevPosts, ...result.posts]);
+        if (reset) {
+          setPosts(result.posts);
+          setOffset(result.posts.length);
+        } else {
+          setPosts((prevPosts) => [...prevPosts, ...result.posts]);
+          setOffset(currentOffset + result.posts.length);
+        }
         setTotal(result.total);
-        setOffset(currentOffset + result.posts.length);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch posts');
       } finally {
         setIsLoading(false);
       }
     },
-    [sort, pageSize, offset]
+    [sort, pageSize, offset, viewerWallet]
   );
 
+  // Refetch when viewer wallet changes
   useEffect(() => {
+    setOffset(0);
+    loadPosts(true);
+  }, [viewerWallet]);
+
+  // Refetch when sort changes
+  useEffect(() => {
+    setOffset(0);
     loadPosts(true);
   }, [sort]);
 

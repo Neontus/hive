@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import styles from '../styles/Home.module.css';
 import { Post } from '../types/post';
-import { formatPnL, calculateVolumes } from '../utils/tokens';
+import { formatPnL, calculateVolumes, getTokenSymbol } from '../utils/tokens';
 import { TipModal } from './TipModal';
 import { useUser } from '../contexts/UserContext';
 
@@ -26,8 +26,20 @@ export const PostCard = ({ post, onTipSuccess }: PostCardProps) => {
   // Status badge: placeholder for unrealized/realized gains
   const gainStatus = post.exited ? 'Realized Gains' : 'Unrealized Gains';
 
+  // Get token symbols for the trade
+  const tokenInSymbol = getTokenSymbol(post.token_in_address);
+  const tokenOutSymbol = getTokenSymbol(post.token_out_address);
+
+  // Determine if details should be shown
+  const shouldShowDetails = isOwnPost || post.viewer_has_tipped;
+
   const handleTip = () => {
     setIsTipModalOpen(true);
+  };
+
+  const handleTipSuccess = () => {
+    setIsTipModalOpen(false);
+    onTipSuccess?.();
   };
 
   return (
@@ -63,6 +75,31 @@ export const PostCard = ({ post, onTipSuccess }: PostCardProps) => {
           <p>{post.content}</p>
         </div>
 
+        {/* Trade Details Section - Layout always consistent */}
+        <div style={{
+          padding: '12px 0',
+          borderTop: '1px solid #e5e7eb',
+          marginBottom: '8px',
+          minHeight: '24px',
+          display: 'flex',
+          alignItems: 'center'
+        }}>
+          {shouldShowDetails ? (
+            <div style={{
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#1f2937'
+            }}>
+              {post.amount_in.toFixed(2)} {tokenInSymbol} → {post.amount_out.toFixed(2)} {tokenOutSymbol}
+            </div>
+          ) : (
+            <span className={styles.statusBadge} style={{ fontSize: '13px', fontStyle: 'italic', color: '#6b7280' }}>
+              Tip to reveal
+            </span>
+          )}
+        </div>
+
+        {/* Trade Metrics Section - Always shown */}
         <div className={styles.footer}>
           <div className={styles.footerLeft}>
             <span className={styles.statusBadge}>
@@ -96,10 +133,7 @@ export const PostCard = ({ post, onTipSuccess }: PostCardProps) => {
         post={post}
         isOpen={isTipModalOpen}
         onClose={() => setIsTipModalOpen(false)}
-        onSuccess={() => {
-          setIsTipModalOpen(false);
-          onTipSuccess?.();
-        }}
+        onSuccess={handleTipSuccess}
       />
     </>
   );

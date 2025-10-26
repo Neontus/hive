@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
+import { useAccount } from 'wagmi';
 import styles from '../styles/Home.module.css';
 import { PostCard } from './PostCard';
 import { useFeedPosts } from '../hooks/useFeedPosts';
 
 export const PostFeed = () => {
   const [sort, setSort] = useState<'recent' | 'pnl' | 'tipped'>('recent');
-  const { posts, isLoading, error, total, hasMore, loadMore, refetch } = useFeedPosts(sort, 20);
+  const { address } = useAccount();
+  const { posts, isLoading, error, total, hasMore, loadMore, refetch } = useFeedPosts(sort, 20, address);
 
   // Auto-refresh every 30s
   useEffect(() => {
@@ -51,7 +53,7 @@ export const PostFeed = () => {
         <>
           <div className={styles.grid}>
             {posts.map((post) => (
-              <PostCard key={post.id} post={post} />
+              <PostCard key={post.id} post={post} onTipSuccess={refetch} />
             ))}
           </div>
 

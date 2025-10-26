@@ -70,14 +70,14 @@ interface SwapEventData {
 
 function parseSwapEventData(data: string): SwapEventData | null {
   try {
+    // Uniswap V3 Swap event: (int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)
     const decoded = decodeAbiParameters(
       [
-        { name: 'amount0', type: 'int128' },
-        { name: 'amount1', type: 'int128' },
+        { name: 'amount0', type: 'int256' },
+        { name: 'amount1', type: 'int256' },
         { name: 'sqrtPriceX96', type: 'uint160' },
         { name: 'liquidity', type: 'uint128' },
         { name: 'tick', type: 'int24' },
-        { name: 'fee', type: 'uint24' },
       ],
       data as `0x${string}`
     );
@@ -88,7 +88,7 @@ function parseSwapEventData(data: string): SwapEventData | null {
       sqrtPriceX96: decoded[2] as bigint,
       liquidity: decoded[3] as bigint,
       tick: Number(decoded[4]),
-      fee: Number(decoded[5]),
+      fee: 0, // Fee is in topics, not in data
     };
   } catch (error) {
     console.error('Error parsing swap event data:', error);
@@ -97,6 +97,11 @@ function parseSwapEventData(data: string): SwapEventData | null {
 }
 
 const KNOWN_POOLS: Record<string, { currency0: string; currency1: string }> = {
+  // Pool: 0x3289680dd4d6c10bb19b899729cda5eef58aeff1 (WETH/USDC)
+  '0x3289680dd4d6c10bb19b899729cda5eef58aeff1': {
+    currency0: '0x7b79995e5f793a07bc00c21412e50ecae098e7f9', // WETH
+    currency1: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238', // USDC
+  },
   '0x357d9a61623f0c9209fa971ad0a6f7fbc4330ed1f0185eb3116bbbe0346ee0ca': {
     currency0: '0x7b79995e5f793a07bc00c21412e50ecae098e7f9',
     currency1: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238',
@@ -109,15 +114,15 @@ const KNOWN_POOLS: Record<string, { currency0: string; currency1: string }> = {
 
 function parsePoolId(poolId: string): { currency0: string; currency1: string } | null {
   try {
-    const knownPool = KNOWN_POOLS[poolId.toLowerCase()];
+    const poolIdLower = poolId.toLowerCase();
+    const knownPool = KNOWN_POOLS[poolIdLower];
     if (knownPool) {
       return knownPool;
     }
 
-    return {
-      currency0: `0x${'0'.repeat(40)}`,
-      currency1: `0x${'1'.repeat(40)}`,
-    };
+    // If not in known pools, return null so we skip this trade
+    // This prevents showing trades with unknown token pairs
+    return null;
   } catch (error) {
     console.error('Error parsing pool ID:', error);
     return null;
@@ -189,17 +194,22 @@ export const useRecentTrades = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/swaps?address=${address}`);
+      const response = await fetch(`${API_BASE_URL}/api/swaps?address=${address}&debug=true`);
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json() as SwapsResponse;
+      console.log('Swaps response:', result);
 
       if (!result.success) {
         throw new Error(result.error || 'Failed to fetch swap data');
       }
+
+      console.log('Raw swaps:', result.swaps);
+      console.log('Blocks:', result.blocks);
+      console.log('Transactions:', result.transactions);
 
       const transformedTrades: Trade[] = result.swaps
         .map((log) => {

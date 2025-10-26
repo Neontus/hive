@@ -21,6 +21,9 @@ export interface Post {
   tip_count?: number;
   // Internal: trader wallet (not displayed)
   trader_wallet_address?: string;
+  // Viewer context
+  viewer_is_author?: boolean;
+  viewer_has_tipped?: boolean;
 }
 
 export interface CreatePostRequest {

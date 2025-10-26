@@ -52,13 +52,18 @@ export async function fetchPostedHashes(): Promise<string[]> {
 export async function fetchPosts(
   sort: 'recent' | 'pnl' | 'tipped' = 'recent',
   limit: number = 20,
-  offset: number = 0
+  offset: number = 0,
+  viewerWallet?: string
 ): Promise<{ posts: Post[]; total: number }> {
   const params = new URLSearchParams({
     sort,
     limit: limit.toString(),
     offset: offset.toString()
   });
+
+  if (viewerWallet) {
+    params.append('viewer_wallet', viewerWallet);
+  }
 
   const response = await fetch(`${API_URL}/api/posts?${params}`);
 
@@ -67,6 +72,17 @@ export async function fetchPosts(
   }
 
   return response.json();
+}
+
+export async function fetchUserTippedPosts(walletAddress: string): Promise<string[]> {
+  const response = await fetch(`${API_URL}/api/users/${walletAddress}/tipped-posts`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch tipped posts');
+  }
+
+  const data = await response.json();
+  return data.tipped_posts || [];
 }
 
 export interface CreateTipRequest {
@@ -124,6 +140,7 @@ export const api = {
   createPost,
   fetchPostedHashes,
   fetchPosts,
+  fetchUserTippedPosts,
   createTip,
   fetchPostTips,
   fetchUserTips

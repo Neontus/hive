@@ -16,6 +16,7 @@ export const config = getDefaultConfig({
     sepolia
     // Note: Using Ethereum Sepolia to match backend HyperSync configuration
     // Backend is configured for https://sepolia.hypersync.xyz (Ethereum Sepolia)
+    // Ethereum Sepolia has Uniswap V3 with liquidity for testing
   ],
   ssr: true,
 });
