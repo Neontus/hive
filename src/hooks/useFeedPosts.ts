@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { fetchPosts } from '../services/api';
 import { Post } from '../types/post';
 
-export function useFeedPosts(sort: 'recent' | 'pnl' = 'recent', pageSize: number = 20) {
+export function useFeedPosts(sort: 'recent' | 'pnl' | 'tipped' = 'recent', pageSize: number = 20) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,16 +18,16 @@ export function useFeedPosts(sort: 'recent' | 'pnl' = 'recent', pageSize: number
         const currentOffset = reset ? 0 : offset;
         const result = await fetchPosts(sort, pageSize, currentOffset);
 
-        setPosts(reset ? result.posts : [...posts, ...result.posts]);
+        setPosts(reset ? result.posts : (prevPosts) => [...prevPosts, ...result.posts]);
         setTotal(result.total);
         setOffset(currentOffset + result.posts.length);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load posts');
+        setError(err instanceof Error ? err.message : 'Failed to fetch posts');
       } finally {
         setIsLoading(false);
       }
     },
-    [sort, pageSize, offset, posts]
+    [sort, pageSize, offset]
   );
 
   useEffect(() => {

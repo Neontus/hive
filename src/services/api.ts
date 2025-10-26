@@ -50,7 +50,7 @@ export async function fetchPostedHashes(): Promise<string[]> {
 }
 
 export async function fetchPosts(
-  sort: 'recent' | 'pnl' = 'recent',
+  sort: 'recent' | 'pnl' | 'tipped' = 'recent',
   limit: number = 20,
   offset: number = 0
 ): Promise<{ posts: Post[]; total: number }> {
@@ -68,3 +68,63 @@ export async function fetchPosts(
 
   return response.json();
 }
+
+export interface CreateTipRequest {
+  tipper_address: string;
+  tx_hash: string;
+}
+
+export interface TipResponse {
+  id: string;
+  post_id: string;
+  tipper_address: string;
+  amount: number;
+  tx_hash: string;
+  status: string;
+  created_at: string;
+}
+
+export async function createTip(postId: string, data: CreateTipRequest): Promise<TipResponse> {
+  const response = await fetch(`${API_URL}/api/posts/${postId}/tips`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to create tip');
+  }
+
+  return response.json();
+}
+
+export async function fetchPostTips(postId: string) {
+  const response = await fetch(`${API_URL}/api/posts/${postId}/tips`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch post tips');
+  }
+
+  return response.json();
+}
+
+export async function fetchUserTips(username: string) {
+  const response = await fetch(`${API_URL}/api/users/${username}/tips`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch user tips');
+  }
+
+  return response.json();
+}
+
+export const api = {
+  ensureUser,
+  createPost,
+  fetchPostedHashes,
+  fetchPosts,
+  createTip,
+  fetchPostTips,
+  fetchUserTips
+};

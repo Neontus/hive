@@ -19,6 +19,7 @@ import time
 import asyncio
 import secrets
 import string
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -85,6 +86,21 @@ class UserResponse(BaseModel):
     username: str
     wallet_address: str
     is_new: bool
+
+
+class CreateTipRequest(BaseModel):
+    tipper_address: str
+    tx_hash: str
+
+
+class TipResponse(BaseModel):
+    id: str
+    post_id: str
+    tipper_address: str
+    amount: float
+    tx_hash: str
+    status: str
+    created_at: str
 
 
 def validate_ethereum_address(address: str) -> bool:
@@ -783,7 +799,7 @@ async def get_posted_hashes():
 
 @app.get('/api/posts')
 async def get_posts(
-    sort: str = Query("recent", regex="^(recent|pnl)$"),
+    sort: str = Query("recent", regex="^(recent|pnl|tipped)$"),
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0)
 ):
@@ -820,6 +836,21 @@ async def get_posts(
         for post in posts:
             enriched_post = {**post}
             post_id = post.get('id')
+
+            # Get trader's wallet address from username
+            try:
+                user_result = await loop.run_in_executor(
+                    None,
+                    lambda: app.state.supabase.table('users')
+                        .select('wallet_address')
+                        .eq('username', post.get('username'))
+                        .execute()
+                )
+                if user_result.data:
+                    enriched_post['trader_wallet_address'] = user_result.data[0]['wallet_address']
+            except Exception as e:
+                print(f"[API] Error fetching trader wallet: {str(e)}")
+                enriched_post['trader_wallet_address'] = None
 
             try:
                 # Get entry price from Pyth
@@ -959,6 +990,9 @@ async def get_posts(
         # Sort by P&L if requested
         if sort == 'pnl':
             enriched_posts.sort(key=lambda x: x.get('pnl') or -float('inf'), reverse=True)
+        elif sort == 'tipped':
+            # Sort by total tips received (highest first)
+            enriched_posts.sort(key=lambda x: x.get('total_tips') or 0, reverse=True)
 
         return {
             'posts': enriched_posts,
@@ -968,6 +1002,271 @@ async def get_posts(
     except Exception as e:
         print(f"[API] Error fetching posts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def verify_pyusd_transfer_on_chain(tx_hash: str, recipient_address: str, expected_amount: str) -> dict:
+    """
+    Verify PYUSD transfer on chain using Etherscan API
+    Returns transaction details if verified, raises exception if not found or invalid
+    """
+    ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
+    PYUSD_SEPOLIA_ADDRESS = "0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9"
+    SEPOLIA_CHAIN = "sepolia"  # For Etherscan API
+
+    # For MVP, we can verify using Etherscan or skip verification
+    # If no API key, we still record the tip with "unverified" status
+    if not ETHERSCAN_API_KEY:
+        print(f"[API] Warning: No Etherscan API key configured. Tip recorded as unverified.")
+        return {
+            "verified": False,
+            "tx_hash": tx_hash,
+            "reason": "No Etherscan API key"
+        }
+
+    try:
+        # Query Etherscan for transaction details
+        url = f"https://{SEPOLIA_CHAIN}.etherscan.io/api"
+        params = {
+            "apikey": ETHERSCAN_API_KEY,
+            "module": "account",
+            "action": "tokentx",
+            "contractaddress": PYUSD_SEPOLIA_ADDRESS,
+            "txhash": tx_hash,
+        }
+
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("status") != "1" or not data.get("result"):
+            print(f"[API] Transaction {tx_hash} not found on Etherscan")
+            return {
+                "verified": False,
+                "tx_hash": tx_hash,
+                "reason": "Transaction not found"
+            }
+
+        # Get the first result (should be only one for a specific tx_hash)
+        tx_info = data["result"][0] if isinstance(data["result"], list) else data["result"]
+
+        # Verify recipient and amount
+        # Note: PYUSD has 6 decimals, so 1 PYUSD = 1000000
+        tx_to = tx_info.get("to", "").lower()
+        recipient_lower = recipient_address.lower()
+        amount_in_units = int(tx_info.get("value", "0"))
+        amount_in_pyusd = amount_in_units / 1_000_000
+
+        if tx_to != recipient_lower:
+            print(f"[API] Recipient mismatch: {tx_to} != {recipient_lower}")
+            return {
+                "verified": False,
+                "tx_hash": tx_hash,
+                "reason": "Recipient mismatch"
+            }
+
+        # Check amount is approximately 1 PYUSD (within 0.1 tolerance for decimal conversion)
+        if abs(amount_in_pyusd - 1.0) > 0.01:
+            print(f"[API] Amount mismatch: {amount_in_pyusd} != 1.0")
+            return {
+                "verified": False,
+                "tx_hash": tx_hash,
+                "reason": f"Amount mismatch: got {amount_in_pyusd} PYUSD"
+            }
+
+        print(f"[API] PYUSD transfer verified: {tx_hash} -> {amount_in_pyusd} PYUSD to {tx_to}")
+        return {
+            "verified": True,
+            "tx_hash": tx_hash,
+            "amount": amount_in_pyusd,
+            "recipient": tx_to
+        }
+
+    except Exception as e:
+        print(f"[API] Error verifying PYUSD transfer: {str(e)}")
+        return {
+            "verified": False,
+            "tx_hash": tx_hash,
+            "reason": str(e)
+        }
+
+
+@app.post('/api/posts/{post_id}/tips')
+async def create_tip(post_id: str, request: CreateTipRequest):
+    """
+    Create a tip for a post
+    Verifies PYUSD transfer on-chain and records in database
+    """
+    try:
+        # Validate inputs
+        if not validate_ethereum_address(request.tipper_address):
+            raise HTTPException(status_code=400, detail="Invalid tipper address")
+
+        if not request.tx_hash.startswith('0x') or len(request.tx_hash) != 66:
+            raise HTTPException(status_code=400, detail="Invalid transaction hash")
+
+        # Check if post exists
+        posts = app.state.supabase.table('posts').select('*').eq('id', post_id).execute()
+        if not posts.data:
+            raise HTTPException(status_code=404, detail="Post not found")
+
+        post = posts.data[0]
+        recipient_address = None
+
+        # Get recipient address (trader's wallet) from post's username
+        users = app.state.supabase.table('users').select('wallet_address').eq('username', post['username']).execute()
+        if users.data:
+            recipient_address = users.data[0]['wallet_address']
+
+        if not recipient_address:
+            raise HTTPException(status_code=400, detail="Could not find recipient wallet address")
+
+        # Verify PYUSD transfer on chain
+        verification = verify_pyusd_transfer_on_chain(request.tx_hash, recipient_address, "1.0")
+
+        # Record tip in database (even if unverified for MVP)
+        tip_data = {
+            'post_id': post_id,
+            'tipper_address': request.tipper_address.lower(),
+            'tipper_username': None,  # Can be populated later if needed
+            'amount': 1.0,
+            'tx_hash': request.tx_hash,
+            'status': 'confirmed' if verification['verified'] else 'unverified'
+        }
+
+        # Try to find tipper's username
+        tipper_users = app.state.supabase.table('users').select('username').eq('wallet_address', request.tipper_address.lower()).execute()
+        if tipper_users.data:
+            tip_data['tipper_username'] = tipper_users.data[0]['username']
+
+        # Insert tip
+        result = app.state.supabase.table('tips').insert(tip_data).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to create tip")
+
+        # Update post's tip totals
+        app.state.supabase.table('posts').update({
+            'total_tips': post.get('total_tips', 0) + 1.0,
+            'tip_count': post.get('tip_count', 0) + 1
+        }).eq('id', post_id).execute()
+
+        tip = result.data[0]
+        return TipResponse(
+            id=tip['id'],
+            post_id=tip['post_id'],
+            tipper_address=tip['tipper_address'],
+            amount=tip['amount'],
+            tx_hash=tip['tx_hash'],
+            status=tip['status'],
+            created_at=tip['created_at']
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API] Error creating tip: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/api/posts/{post_id}/tips')
+async def get_tips_for_post(post_id: str):
+    """
+    Get all tips for a specific post
+    """
+    try:
+        # Get tips for post
+        tips = app.state.supabase.table('tips').select('*').eq('post_id', post_id).order('created_at', desc=True).execute()
+
+        if not tips.data:
+            return {
+                'post_id': post_id,
+                'total_amount': 0.0,
+                'count': 0,
+                'tips': []
+            }
+
+        # Calculate totals
+        total_amount = sum(float(tip['amount']) for tip in tips.data)
+
+        # Format response
+        formatted_tips = [
+            {
+                'tipper_address': tip['tipper_address'],
+                'tipper_username': tip['tipper_username'],
+                'amount': float(tip['amount']),
+                'created_at': tip['created_at'],
+                'status': tip['status']
+            }
+            for tip in tips.data
+        ]
+
+        return {
+            'post_id': post_id,
+            'total_amount': total_amount,
+            'count': len(tips.data),
+            'tips': formatted_tips
+        }
+
+    except Exception as e:
+        print(f"[API] Error fetching tips for post: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/api/users/{username}/tips')
+async def get_tips_for_user(username: str):
+    """
+    Get all tips received by a specific user (trader)
+    """
+    try:
+        # Get user's posts
+        posts = app.state.supabase.table('posts').select('id').eq('username', username).execute()
+
+        if not posts.data:
+            return {
+                'username': username,
+                'total_received': 0.0,
+                'tip_count': 0,
+                'recent_tips': []
+            }
+
+        post_ids = [post['id'] for post in posts.data]
+
+        # Get all tips for user's posts
+        tips = app.state.supabase.table('tips').select('*').in_('post_id', post_ids).order('created_at', desc=True).limit(100).execute()
+
+        if not tips.data:
+            return {
+                'username': username,
+                'total_received': 0.0,
+                'tip_count': 0,
+                'recent_tips': []
+            }
+
+        # Calculate totals
+        total_received = sum(float(tip['amount']) for tip in tips.data)
+
+        # Format response
+        formatted_tips = [
+            {
+                'tipper_address': tip['tipper_address'],
+                'tipper_username': tip['tipper_username'],
+                'amount': float(tip['amount']),
+                'created_at': tip['created_at'],
+                'status': tip['status']
+            }
+            for tip in tips.data
+        ]
+
+        return {
+            'username': username,
+            'total_received': total_received,
+            'tip_count': len(tips.data),
+            'recent_tips': formatted_tips
+        }
+
+    except Exception as e:
+        print(f"[API] Error fetching tips for user: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get('/api/debug/trade/{tx_hash}')
 async def debug_trade(tx_hash: str):
