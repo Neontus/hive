@@ -70,14 +70,14 @@ interface SwapEventData {
 
 function parseSwapEventData(data: string): SwapEventData | null {
   try {
+    // Uniswap V3 Swap event: (int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)
     const decoded = decodeAbiParameters(
       [
-        { name: 'amount0', type: 'int128' },
-        { name: 'amount1', type: 'int128' },
+        { name: 'amount0', type: 'int256' },
+        { name: 'amount1', type: 'int256' },
         { name: 'sqrtPriceX96', type: 'uint160' },
         { name: 'liquidity', type: 'uint128' },
         { name: 'tick', type: 'int24' },
-        { name: 'fee', type: 'uint24' },
       ],
       data as `0x${string}`
     );
@@ -88,7 +88,7 @@ function parseSwapEventData(data: string): SwapEventData | null {
       sqrtPriceX96: decoded[2] as bigint,
       liquidity: decoded[3] as bigint,
       tick: Number(decoded[4]),
-      fee: Number(decoded[5]),
+      fee: 0, // Fee is in topics, not in data
     };
   } catch (error) {
     console.error('Error parsing swap event data:', error);
@@ -97,6 +97,11 @@ function parseSwapEventData(data: string): SwapEventData | null {
 }
 
 const KNOWN_POOLS: Record<string, { currency0: string; currency1: string }> = {
+  // Pool: 0x3289680dd4d6c10bb19b899729cda5eef58aeff1 (WETH/USDC)
+  '0x3289680dd4d6c10bb19b899729cda5eef58aeff1': {
+    currency0: '0x7b79995e5f793a07bc00c21412e50ecae098e7f9', // WETH
+    currency1: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238', // USDC
+  },
   '0x357d9a61623f0c9209fa971ad0a6f7fbc4330ed1f0185eb3116bbbe0346ee0ca': {
     currency0: '0x7b79995e5f793a07bc00c21412e50ecae098e7f9',
     currency1: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238',
@@ -109,15 +114,15 @@ const KNOWN_POOLS: Record<string, { currency0: string; currency1: string }> = {
 
 function parsePoolId(poolId: string): { currency0: string; currency1: string } | null {
   try {
-    const knownPool = KNOWN_POOLS[poolId.toLowerCase()];
+    const poolIdLower = poolId.toLowerCase();
+    const knownPool = KNOWN_POOLS[poolIdLower];
     if (knownPool) {
       return knownPool;
     }
 
-    return {
-      currency0: `0x${'0'.repeat(40)}`,
-      currency1: `0x${'1'.repeat(40)}`,
-    };
+    // If not in known pools, return null so we skip this trade
+    // This prevents showing trades with unknown token pairs
+    return null;
   } catch (error) {
     console.error('Error parsing pool ID:', error);
     return null;
@@ -189,54 +194,63 @@ export const useRecentTrades = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/swaps?address=${address}`);
+      const response = await fetch(`${API_BASE_URL}/api/swaps?address=${address}&debug=true`);
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json() as SwapsResponse;
+      console.log('Swaps response:', result);
 
       if (!result.success) {
         throw new Error(result.error || 'Failed to fetch swap data');
       }
 
+      console.log('Raw swaps:', result.swaps);
+      console.log('Blocks:', result.blocks);
+      console.log('Transactions:', result.transactions);
+
       const transformedTrades: Trade[] = result.swaps
         .map((log) => {
-          const topic1 = log.topics[1];
+          // Use backend-enriched data
           const block = result.blocks.find(b => b.number === log.block_number);
           const tx = result.transactions.find(
             t => t.block_number === log.block_number && t.transaction_index === log.transaction_index
           );
 
-          if (!log.data || !block || !tx || !topic1) return null;
+          // Check that we have required enriched data from backend
+          if (!block || !tx || !log.token0_symbol || !log.token1_symbol) {
+            return null;
+          }
 
+          // Parse the swap event data to determine direction (which token was received)
           const eventData = parseSwapEventData(log.data);
           if (!eventData) return null;
 
-          const poolTokens = parsePoolId(topic1);
-          if (!poolTokens) return null;
-
-          const token0Info = getTokenInfo(poolTokens.currency0);
-          const token1Info = getTokenInfo(poolTokens.currency1);
           const receivingToken0 = eventData.amount0 < 0n;
-          const timestampBigInt = block.timestamp ? BigInt(block.timestamp) : 0n;
+          // block_timestamp is already a Unix timestamp from backend (number, not string)
+          const timestampBigInt = BigInt(log.block_timestamp || 0);
 
-          // Extract Pyth price data
+          // Extract Pyth price data (already enriched by backend)
           const entryPriceToken0 = log.entry_price_token0_usd;
           const entryPriceToken1 = log.entry_price_token1_usd;
 
+          // Determine token info from backend data
+          const token0Decimals = log.token0_symbol === 'USDC' ? 6 : 18;
+          const token1Decimals = log.token1_symbol === 'USDC' ? 6 : 18;
+
           return {
             id: `${log.block_number}-${log.log_index}`,
-            tokenIn: receivingToken0 ? token1Info.symbol : token0Info.symbol,
-            tokenOut: receivingToken0 ? token0Info.symbol : token1Info.symbol,
+            tokenIn: receivingToken0 ? log.token1_symbol : log.token0_symbol,
+            tokenOut: receivingToken0 ? log.token0_symbol : log.token1_symbol,
             amountIn: formatAmount(
               receivingToken0 ? eventData.amount1 : eventData.amount0,
-              receivingToken0 ? token1Info.decimals : token0Info.decimals
+              receivingToken0 ? token1Decimals : token0Decimals
             ),
             amountOut: formatAmount(
               receivingToken0 ? -eventData.amount0 : -eventData.amount1,
-              receivingToken0 ? token0Info.decimals : token1Info.decimals
+              receivingToken0 ? token0Decimals : token1Decimals
             ),
             timestamp: timestampBigInt > 0n ? formatTimestamp(timestampBigInt) : 'Unknown',
             txHash: tx.hash || '',

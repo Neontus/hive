@@ -16,6 +16,14 @@ export interface Post {
   current_price?: number;
   exit_price?: number;
   pnl?: number;
+  // Tips
+  total_tips?: number;
+  tip_count?: number;
+  // Internal: trader wallet (not displayed)
+  trader_wallet_address?: string;
+  // Viewer context
+  viewer_is_author?: boolean;
+  viewer_has_tipped?: boolean;
 }
 
 export interface CreatePostRequest {

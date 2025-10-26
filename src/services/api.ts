@@ -50,15 +50,20 @@ export async function fetchPostedHashes(): Promise<string[]> {
 }
 
 export async function fetchPosts(
-  sort: 'recent' | 'pnl' = 'recent',
+  sort: 'recent' | 'pnl' | 'tipped' = 'recent',
   limit: number = 20,
-  offset: number = 0
+  offset: number = 0,
+  viewerWallet?: string
 ): Promise<{ posts: Post[]; total: number }> {
   const params = new URLSearchParams({
     sort,
     limit: limit.toString(),
     offset: offset.toString()
   });
+
+  if (viewerWallet) {
+    params.append('viewer_wallet', viewerWallet);
+  }
 
   const response = await fetch(`${API_URL}/api/posts?${params}`);
 
@@ -68,3 +73,75 @@ export async function fetchPosts(
 
   return response.json();
 }
+
+export async function fetchUserTippedPosts(walletAddress: string): Promise<string[]> {
+  const response = await fetch(`${API_URL}/api/users/${walletAddress}/tipped-posts`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch tipped posts');
+  }
+
+  const data = await response.json();
+  return data.tipped_posts || [];
+}
+
+export interface CreateTipRequest {
+  tipper_address: string;
+  tx_hash: string;
+}
+
+export interface TipResponse {
+  id: string;
+  post_id: string;
+  tipper_address: string;
+  amount: number;
+  tx_hash: string;
+  status: string;
+  created_at: string;
+}
+
+export async function createTip(postId: string, data: CreateTipRequest): Promise<TipResponse> {
+  const response = await fetch(`${API_URL}/api/posts/${postId}/tips`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to create tip');
+  }
+
+  return response.json();
+}
+
+export async function fetchPostTips(postId: string) {
+  const response = await fetch(`${API_URL}/api/posts/${postId}/tips`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch post tips');
+  }
+
+  return response.json();
+}
+
+export async function fetchUserTips(username: string) {
+  const response = await fetch(`${API_URL}/api/users/${username}/tips`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch user tips');
+  }
+
+  return response.json();
+}
+
+export const api = {
+  ensureUser,
+  createPost,
+  fetchPostedHashes,
+  fetchPosts,
+  fetchUserTippedPosts,
+  createTip,
+  fetchPostTips,
+  fetchUserTips
+};

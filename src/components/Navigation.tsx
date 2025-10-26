@@ -3,13 +3,17 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import Image from 'next/image';
 import { CreatePostModal } from './CreatePostModal';
 import { CreatePostData } from '../types/trade';
+import { useUser } from '../contexts/UserContext';
+import { useUserTips } from '../hooks/useUserTips';
 import styles from '../styles/Navigation.module.css';
 
 export const Navigation = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { user } = useUser();
+  const { totalReceived } = useUserTips(user?.username ?? null);
 
-  const handleCreatePost = (data: CreatePostData) => {
-    console.log('Creating post with data:', data);
+  const handlePostTrade = (data: CreatePostData) => {
+    console.log('Posting trade with data:', data);
     // TODO: Implement actual post creation logic
     return Promise.resolve();
   };
@@ -29,11 +33,16 @@ export const Navigation = () => {
           </div>
           
           <div className={styles.actions}>
-            <button 
+            {user && (
+              <div className={styles.earnedBadge}>
+                ${totalReceived.toFixed(2)} earned
+              </div>
+            )}
+            <button
               className={styles.createPostButton}
               onClick={() => setIsModalOpen(true)}
             >
-              Create Post
+              Post Trade
             </button>
             <ConnectButton />
           </div>
@@ -43,7 +52,7 @@ export const Navigation = () => {
       <CreatePostModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSubmit={handleCreatePost}
+        onSubmit={handlePostTrade}
       />
     </>
   );

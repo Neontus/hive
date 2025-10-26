@@ -67,7 +67,7 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
         throw new Error('Trade hash not found');
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create post';
+      const errorMessage = error instanceof Error ? error.message : 'Failed to post trade';
 
       if (errorMessage.includes('404')) {
         setSubmitError('Trade not found. Please wait a moment and try again.');
@@ -110,8 +110,8 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
     >
       <div className={styles.modal}>
         <div className={styles.header}>
-          <h2 id="modal-title" className={styles.title}>Create Post</h2>
-          <button 
+          <h2 id="modal-title" className={styles.title}>Post Trade</h2>
+          <button
             className={styles.closeButton}
             onClick={onClose}
             aria-label="Close modal"
@@ -134,9 +134,9 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
                 {isLoading ? (
                   <div className={styles.loading}>Loading trades...</div>
                 ) : error ? (
-                  <div className={styles.error}>Failed to load trades</div>
+                  <div className={styles.error}>No Trades Found</div>
                 ) : trades.length === 0 ? (
-                  <div className={styles.noTrades}>No recent trades found</div>
+                  <div className={styles.noTrades}>No Trades Found</div>
                 ) : (() => {
                   const availableTrades = trades.filter(t => !postedHashes.has(t.txHash.toLowerCase()));
                   return availableTrades.length === 0 ? (
@@ -240,7 +240,7 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
             onClick={handleSubmit}
             disabled={!selectedTrade || isSubmitting || !isConnected || !user}
           >
-            {isSubmitting ? 'Creating...' : 'Post Trade'}
+            {isSubmitting ? 'Posting...' : 'Post Trade'}
           </button>
         </div>
       </div>
