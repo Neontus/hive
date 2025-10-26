@@ -7,6 +7,10 @@ export interface Trade {
   timestamp: string;
   txHash: string;
   type: 'buy' | 'sell';
+  // Pyth price data
+  entryPriceUsd?: number | null;
+  entryPriceTokenIn?: number | null;
+  entryPriceTokenOut?: number | null;
 }
 
 export interface CreatePostData {

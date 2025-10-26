@@ -100,12 +100,59 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit }: CreatePostModalPr
                         key={trade.id}
                         trade={trade}
                         isSelected={selectedTrade?.id === trade.id}
-                        onSelect={() => setSelectedTrade(trade)}
+                        onSelect={() => setSelectedTrade(selectedTrade?.id === trade.id ? null : trade)}
                       />
                     ))}
                   </div>
                 )}
               </div>
+
+              {selectedTrade && (
+                <div className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Trade Details</h3>
+                  <div className={styles.selectedTradeDetails}>
+                    {(selectedTrade.entryPriceTokenIn || selectedTrade.entryPriceTokenOut) ? (
+                      <>
+                        <div className={styles.priceDetail}>
+                          <div className={styles.priceDetailLabel}>Entry Prices:</div>
+                          <div className={styles.priceDetailRow}>
+                            <span className={styles.priceDetailItem}>
+                              {selectedTrade.tokenIn}: ${selectedTrade.entryPriceTokenIn?.toFixed(2) || 'N/A'}
+                            </span>
+                            <span className={styles.priceDetailSeparator}>•</span>
+                            <span className={styles.priceDetailItem}>
+                              {selectedTrade.tokenOut}: ${selectedTrade.entryPriceTokenOut?.toFixed(2) || 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className={styles.priceDetail}>
+                          <div className={styles.priceDetailLabel}>Trade Value:</div>
+                          <div className={styles.priceDetailRow}>
+                            {selectedTrade.entryPriceTokenIn && (
+                              <span className={styles.priceDetailItem}>
+                                Spent: ${(parseFloat(selectedTrade.amountIn) * selectedTrade.entryPriceTokenIn).toFixed(2)}
+                              </span>
+                            )}
+                            {selectedTrade.entryPriceTokenOut && (
+                              <>
+                                {selectedTrade.entryPriceTokenIn && <span className={styles.priceDetailSeparator}>•</span>}
+                                <span className={styles.priceDetailItem}>
+                                  Received: ${(parseFloat(selectedTrade.amountOut) * selectedTrade.entryPriceTokenOut).toFixed(2)}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className={styles.noPriceData}>
+                        Price data not available for this trade
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className={styles.section}>
                 <h3 className={styles.sectionTitle}>Add Your Reasoning</h3>
