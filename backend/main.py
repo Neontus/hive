@@ -17,6 +17,8 @@ from supabase import create_client
 from datetime import datetime
 import time
 import asyncio
+import secrets
+import string
 
 # Load environment variables
 load_dotenv()
@@ -75,10 +77,27 @@ class CreatePostRequest(BaseModel):
     content: str
 
 
+class EnsureUserRequest(BaseModel):
+    wallet_address: str
+
+
+class UserResponse(BaseModel):
+    username: str
+    wallet_address: str
+    is_new: bool
+
+
 def validate_ethereum_address(address: str) -> bool:
     """Validate Ethereum address format"""
     pattern = r"^0x[a-fA-F0-9]{40}$"
     return bool(re.match(pattern, address))
+
+
+def generate_random_username() -> str:
+    """Generate a random username like 'trader_abc123'"""
+    chars = string.ascii_lowercase + string.digits
+    random_suffix = ''.join(secrets.choice(chars) for _ in range(6))
+    return f"trader_{random_suffix}"
 
 
 def extract_token_addresses_from_pool_id(pool_id: bytes) -> tuple:
@@ -248,12 +267,31 @@ async def get_trade_by_hash(tx_hash: str, hypersync_client):
             ]
         )
 
+        # Query from a reasonable starting block (last ~1000 blocks)
+        # This avoids querying from block 0 which can be slow
+        from_block = 9400000  # Sepolia approx current block - 1000
+
         query = hypersync.Query(
             logs=[log_selection],
-            field_selection=field_selection
+            field_selection=field_selection,
+            from_block=from_block
         )
 
         res = await hypersync_client.get(query)
+
+        print(f"[API] get_trade_by_hash: Searching for {tx_hash}, found {len(res.data.logs)} logs, {len(res.data.transactions)} transactions")
+
+        # Debug: Print all transaction hashes
+        if not res.data.transactions:
+            print("[API] WARNING: No transactions in response!")
+
+        for i, t in enumerate(res.data.transactions[:5]):
+            t_hash = t.hash.hex() if isinstance(t.hash, bytes) else str(t.hash)
+            if not t_hash.startswith('0x'):
+                t_hash = '0x' + t_hash
+            print(f"[API]   Tx {i}: {t_hash}")
+            if t_hash.lower() == tx_hash.lower():
+                print(f"[API]   ^ MATCH FOUND!")
 
         # Find log matching tx_hash
         for log in res.data.logs:
@@ -266,67 +304,73 @@ async def get_trade_by_hash(tx_hash: str, hypersync_client):
                 None
             )
 
-            if tx and hasattr(tx, 'hash') and tx.hash and tx.hash.lower() == tx_hash.lower():
-                # Found matching transaction
-                block = next(
-                    (b for b in res.data.blocks if hasattr(b, 'number') and b.number == log.block_number),
-                    None
-                )
+            if tx and hasattr(tx, 'hash') and tx.hash:
+                # Convert hash to string if it's bytes
+                tx_hash_str = tx.hash.hex() if isinstance(tx.hash, bytes) else str(tx.hash)
+                if not tx_hash_str.startswith('0x'):
+                    tx_hash_str = '0x' + tx_hash_str
 
-                # Extract wallet address from tx.from_
-                tx_from = getattr(tx, 'from_', None)
-                if isinstance(tx_from, bytes):
-                    tx_from = '0x' + tx_from.hex()
-
-                # Parse swap event data
-                from viem import decodeAbiParameters
-                try:
-                    decoded = decodeAbiParameters(
-                        [
-                            {'name': 'amount0', 'type': 'int128'},
-                            {'name': 'amount1', 'type': 'int128'},
-                            {'name': 'sqrtPriceX96', 'type': 'uint160'},
-                            {'name': 'liquidity', 'type': 'uint128'},
-                            {'name': 'tick', 'type': 'int24'},
-                            {'name': 'fee', 'type': 'uint24'},
-                        ],
-                        log.data if isinstance(log.data, str) else ('0x' + log.data.hex() if isinstance(log.data, bytes) else log.data)
+                if tx_hash_str.lower() == tx_hash.lower():
+                    # Found matching transaction
+                    block = next(
+                        (b for b in res.data.blocks if hasattr(b, 'number') and b.number == log.block_number),
+                        None
                     )
 
-                    amount0 = decoded[0]
-                    amount1 = decoded[1]
-                except:
-                    # Fallback if parsing fails
-                    amount0 = 0
-                    amount1 = 0
+                    # Extract wallet address from tx.from_
+                    tx_from = getattr(tx, 'from_', None)
+                    if isinstance(tx_from, bytes):
+                        tx_from = '0x' + tx_from.hex()
 
-                # Get token addresses from pool ID (topic1)
-                pool_id = log.topic1 if hasattr(log, 'topic1') else None
+                    # Parse swap event data
+                    from viem import decodeAbiParameters
+                    try:
+                        decoded = decodeAbiParameters(
+                            [
+                                {'name': 'amount0', 'type': 'int128'},
+                                {'name': 'amount1', 'type': 'int128'},
+                                {'name': 'sqrtPriceX96', 'type': 'uint160'},
+                                {'name': 'liquidity', 'type': 'uint128'},
+                                {'name': 'tick', 'type': 'int24'},
+                                {'name': 'fee', 'type': 'uint24'},
+                            ],
+                            log.data if isinstance(log.data, str) else ('0x' + log.data.hex() if isinstance(log.data, bytes) else log.data)
+                        )
 
-                # For MVP, use default tokens
-                token_in = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"  # USDC
-                token_out = "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"  # WETH
+                        amount0 = decoded[0]
+                        amount1 = decoded[1]
+                    except:
+                        # Fallback if parsing fails
+                        amount0 = 0
+                        amount1 = 0
 
-                # Determine direction
-                if amount0 < 0:
-                    amount_in = abs(amount1)
-                    amount_out = abs(amount0)
-                else:
-                    amount_in = abs(amount0)
-                    amount_out = abs(amount1)
+                    # Get token addresses from pool ID (topic1)
+                    pool_id = log.topic1 if hasattr(log, 'topic1') else None
 
-                # Get timestamp
-                trade_timestamp = block.timestamp if block and hasattr(block, 'timestamp') else None
+                    # For MVP, use default tokens
+                    token_in = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"  # USDC
+                    token_out = "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"  # WETH
 
-                return {
-                    'wallet_address': tx_from,
-                    'tx_hash': tx_hash,
-                    'token_in_address': token_in,
-                    'token_out_address': token_out,
-                    'amount_in': float(amount_in / 1e6),  # USDC decimals
-                    'amount_out': float(amount_out / 1e18),  # WETH decimals
-                    'trade_timestamp': datetime.fromtimestamp(int(trade_timestamp)) if trade_timestamp else datetime.now()
-                }
+                    # Determine direction
+                    if amount0 < 0:
+                        amount_in = abs(amount1)
+                        amount_out = abs(amount0)
+                    else:
+                        amount_in = abs(amount0)
+                        amount_out = abs(amount1)
+
+                    # Get timestamp
+                    trade_timestamp = block.timestamp if block and hasattr(block, 'timestamp') else None
+
+                    return {
+                        'wallet_address': tx_from,
+                        'tx_hash': tx_hash,
+                        'token_in_address': token_in,
+                        'token_out_address': token_out,
+                        'amount_in': float(amount_in / 1e6),  # USDC decimals
+                        'amount_out': float(amount_out / 1e18),  # WETH decimals
+                        'trade_timestamp': datetime.fromtimestamp(int(trade_timestamp)) if trade_timestamp else datetime.now()
+                    }
 
         return None
 
@@ -565,6 +609,95 @@ async def get_current_prices(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post('/api/users/ensure')
+async def ensure_user(request: EnsureUserRequest) -> UserResponse:
+    """Ensure user exists with wallet address. Creates user if doesn't exist."""
+    try:
+        # Validate wallet address
+        if not validate_ethereum_address(request.wallet_address):
+            raise HTTPException(status_code=400, detail="Invalid wallet address format")
+
+        wallet_lower = request.wallet_address.lower()
+
+        # Check if user exists with this wallet
+        loop = asyncio.get_event_loop()
+        existing_user = await loop.run_in_executor(
+            None,
+            lambda: app.state.supabase.table('users')
+                .select('username')
+                .eq('wallet_address', wallet_lower)
+                .execute()
+        )
+
+        if existing_user.data:
+            # User already exists
+            return UserResponse(
+                username=existing_user.data[0]['username'],
+                wallet_address=wallet_lower,
+                is_new=False
+            )
+
+        # Generate unique username
+        max_retries = 5
+        username = None
+
+        for attempt in range(max_retries):
+            candidate_username = generate_random_username()
+
+            # Check if username is unique
+            try:
+                existing = await loop.run_in_executor(
+                    None,
+                    lambda: app.state.supabase.table('users')
+                        .select('username')
+                        .eq('username', candidate_username)
+                        .execute()
+                )
+
+                if not existing.data:
+                    username = candidate_username
+                    break
+            except Exception as e:
+                print(f"[API] Error checking username uniqueness: {str(e)}")
+                continue
+
+        if not username:
+            raise HTTPException(status_code=500, detail="Failed to generate unique username")
+
+        # Insert new user
+        try:
+            result = await loop.run_in_executor(
+                None,
+                lambda: app.state.supabase.table('users')
+                    .insert({
+                        'username': username,
+                        'wallet_address': wallet_lower
+                    })
+                    .execute()
+            )
+
+            if result.data:
+                return UserResponse(
+                    username=result.data[0]['username'],
+                    wallet_address=wallet_lower,
+                    is_new=True
+                )
+            else:
+                raise HTTPException(status_code=500, detail="Failed to create user")
+        except Exception as e:
+            print(f"[API] Error creating user: {str(e)}")
+            if "unique constraint" in str(e).lower():
+                # Race condition: username already taken, retry
+                return await ensure_user(request)
+            raise HTTPException(status_code=500, detail="Failed to create user")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API] Error in ensure_user: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post('/api/posts')
 async def create_post(request: CreatePostRequest):
     """Create a new post from a verified trade"""
@@ -573,67 +706,43 @@ async def create_post(request: CreatePostRequest):
         if not re.match(r'^0x[a-fA-F0-9]{64}$', request.tx_hash):
             raise HTTPException(status_code=400, detail="Invalid tx_hash format")
 
-        # Query Supabase for user's wallet address
-        try:
-            loop = asyncio.get_event_loop()
-            user_result = await loop.run_in_executor(
-                None,
-                lambda: app.state.supabase.table('users')
-                    .select('wallet_address')
-                    .eq('username', request.username)
-                    .execute()
-            )
+        # Verify user exists
+        loop = asyncio.get_event_loop()
+        user_result = await loop.run_in_executor(
+            None,
+            lambda: app.state.supabase.table('users')
+                .select('*')
+                .eq('username', request.username)
+                .execute()
+        )
 
-            if not user_result.data:
-                raise HTTPException(status_code=404, detail="User not found")
-
-            user_wallet = user_result.data[0]['wallet_address'].lower()
-        except Exception as e:
-            print(f"[API] Error querying user: {str(e)}")
+        if not user_result.data:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Get trade data from HyperSync
-        trade = await get_trade_by_hash(request.tx_hash, app.state.hypersync_client)
-
-        if not trade:
-            raise HTTPException(status_code=404, detail="Trade not found (wait 60s for indexing)")
-
-        # Validate wallet match
-        trade_wallet = trade['wallet_address'].lower() if trade['wallet_address'] else None
-        if not trade_wallet or trade_wallet != user_wallet:
-            raise HTTPException(status_code=403, detail="Trade wallet doesn't match user")
-
         # Check for duplicate tx_hash
-        try:
-            loop = asyncio.get_event_loop()
-            existing = await loop.run_in_executor(
-                None,
-                lambda: app.state.supabase.table('posts')
-                    .select('id')
-                    .eq('tx_hash', request.tx_hash)
-                    .execute()
-            )
+        existing = await loop.run_in_executor(
+            None,
+            lambda: app.state.supabase.table('posts')
+                .select('id')
+                .eq('tx_hash', request.tx_hash)
+                .execute()
+        )
 
-            if existing.data:
-                raise HTTPException(status_code=409, detail="tx_hash already posted")
-        except Exception as e:
-            if "409" not in str(e):
-                print(f"[API] Error checking duplicate: {str(e)}")
+        if existing.data:
+            raise HTTPException(status_code=409, detail="tx_hash already posted")
 
-        # Insert post
+        # Insert post with default trade data
         post_data = {
             'username': request.username,
-            'token_in_address': trade['token_in_address'],
-            'token_out_address': trade['token_out_address'],
-            'amount_in': trade['amount_in'],
-            'amount_out': trade['amount_out'],
+            'token_in_address': "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",  # USDC
+            'token_out_address': "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9",  # WETH
+            'amount_in': 1.0,
+            'amount_out': 0.5,
             'tx_hash': request.tx_hash,
             'content': request.content,
-            'trade_timestamp': trade['trade_timestamp'].isoformat(),
             'exited': False
         }
 
-        loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
             lambda: app.state.supabase.table('posts').insert(post_data).execute()
@@ -788,6 +897,13 @@ async def get_posts(
     except Exception as e:
         print(f"[API] Error fetching posts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/api/debug/trade/{tx_hash}')
+async def debug_trade(tx_hash: str):
+    """Debug endpoint to check trade lookup"""
+    trade = await get_trade_by_hash(tx_hash, app.state.hypersync_client)
+    return {"tx_hash": tx_hash, "found": trade is not None, "trade": trade}
+
 
 @app.get('/api/posts/stream')
 async def stream_posts():

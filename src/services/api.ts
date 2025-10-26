@@ -2,6 +2,27 @@ import { Post, CreatePostRequest } from '../types/post';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+export interface User {
+  username: string;
+  wallet_address: string;
+  is_new: boolean;
+}
+
+export async function ensureUser(walletAddress: string): Promise<User> {
+  const response = await fetch(`${API_URL}/api/users/ensure`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wallet_address: walletAddress })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to ensure user');
+  }
+
+  return response.json();
+}
+
 export async function createPost(data: CreatePostRequest): Promise<Post> {
   const response = await fetch(`${API_URL}/api/posts`, {
     method: 'POST',

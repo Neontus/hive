@@ -3,6 +3,7 @@ import { useAccount } from 'wagmi';
 import { Trade, CreatePostData } from '../types/trade';
 import { TradeItem } from './TradeItem';
 import { useRecentTrades } from '../hooks/useRecentTrades';
+import { useUser } from '../contexts/UserContext';
 import { createPost } from '../services/api';
 import styles from '../styles/CreatePostModal.module.css';
 
@@ -14,13 +15,13 @@ interface CreatePostModalProps {
 }
 
 export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: CreatePostModalProps) => {
-  const { isConnected, address } = useAccount();
+  const { isConnected } = useAccount();
+  const { user, isLoading: userLoading } = useUser();
   const { trades, isLoading, error } = useRecentTrades();
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [reasoning, setReasoning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [username, setUsername] = useState('trader');
 
   useEffect(() => {
     if (!isOpen) {
@@ -32,16 +33,15 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
   }, [isOpen]);
 
   const handleSubmit = async () => {
-    if (!selectedTrade || !reasoning.trim()) return;
+    if (!selectedTrade || !reasoning.trim() || !user) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      // Try new API integration first
       if (selectedTrade.txHash) {
         await createPost({
-          username: username || 'trader',
+          username: user.username,
           tx_hash: selectedTrade.txHash,
           content: reasoning.trim()
         });
@@ -111,6 +111,8 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
             <div className={styles.notConnected}>
               <p>Please connect your wallet to view recent trades</p>
             </div>
+          ) : userLoading ? (
+            <div className={styles.loading}>Setting up your account...</div>
           ) : (
             <>
               <div className={styles.section}>
@@ -217,7 +219,7 @@ export const CreatePostModal = ({ isOpen, onClose, onSubmit, onPostCreated }: Cr
           <button
             className={styles.submitButton}
             onClick={handleSubmit}
-            disabled={!selectedTrade || isSubmitting || !isConnected}
+            disabled={!selectedTrade || isSubmitting || !isConnected || !user}
           >
             {isSubmitting ? 'Creating...' : 'Post Trade'}
           </button>
