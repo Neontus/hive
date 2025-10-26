@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import styles from '../styles/Home.module.css';
 import { Post } from '../types/post';
 import { formatPnL, calculateVolumes, getTokenSymbol } from '../utils/tokens';
@@ -10,7 +10,7 @@ interface PostCardProps {
   onTipSuccess?: () => void;
 }
 
-export const PostCard = ({ post, onTipSuccess }: PostCardProps) => {
+const PostCardComponent = ({ post, onTipSuccess }: PostCardProps) => {
   const [isTipModalOpen, setIsTipModalOpen] = useState(false);
   const { user } = useUser();
   const isOwnPost = user?.username === post.username;
@@ -138,3 +138,6 @@ export const PostCard = ({ post, onTipSuccess }: PostCardProps) => {
     </>
   );
 };
+
+// Memoize to prevent unnecessary re-renders when post data hasn't changed
+export const PostCard = React.memo(PostCardComponent);

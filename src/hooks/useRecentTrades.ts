@@ -213,40 +213,44 @@ export const useRecentTrades = () => {
 
       const transformedTrades: Trade[] = result.swaps
         .map((log) => {
-          const topic1 = log.topics[1];
+          // Use backend-enriched data
           const block = result.blocks.find(b => b.number === log.block_number);
           const tx = result.transactions.find(
             t => t.block_number === log.block_number && t.transaction_index === log.transaction_index
           );
 
-          if (!log.data || !block || !tx || !topic1) return null;
+          // Check that we have required enriched data from backend
+          if (!block || !tx || !log.token0_symbol || !log.token1_symbol) {
+            return null;
+          }
 
+          // Parse the swap event data to determine direction (which token was received)
           const eventData = parseSwapEventData(log.data);
           if (!eventData) return null;
 
-          const poolTokens = parsePoolId(topic1);
-          if (!poolTokens) return null;
-
-          const token0Info = getTokenInfo(poolTokens.currency0);
-          const token1Info = getTokenInfo(poolTokens.currency1);
           const receivingToken0 = eventData.amount0 < 0n;
-          const timestampBigInt = block.timestamp ? BigInt(block.timestamp) : 0n;
+          // block_timestamp is already a Unix timestamp from backend (number, not string)
+          const timestampBigInt = BigInt(log.block_timestamp || 0);
 
-          // Extract Pyth price data
+          // Extract Pyth price data (already enriched by backend)
           const entryPriceToken0 = log.entry_price_token0_usd;
           const entryPriceToken1 = log.entry_price_token1_usd;
 
+          // Determine token info from backend data
+          const token0Decimals = log.token0_symbol === 'USDC' ? 6 : 18;
+          const token1Decimals = log.token1_symbol === 'USDC' ? 6 : 18;
+
           return {
             id: `${log.block_number}-${log.log_index}`,
-            tokenIn: receivingToken0 ? token1Info.symbol : token0Info.symbol,
-            tokenOut: receivingToken0 ? token0Info.symbol : token1Info.symbol,
+            tokenIn: receivingToken0 ? log.token1_symbol : log.token0_symbol,
+            tokenOut: receivingToken0 ? log.token0_symbol : log.token1_symbol,
             amountIn: formatAmount(
               receivingToken0 ? eventData.amount1 : eventData.amount0,
-              receivingToken0 ? token1Info.decimals : token0Info.decimals
+              receivingToken0 ? token1Decimals : token0Decimals
             ),
             amountOut: formatAmount(
               receivingToken0 ? -eventData.amount0 : -eventData.amount1,
-              receivingToken0 ? token0Info.decimals : token1Info.decimals
+              receivingToken0 ? token0Decimals : token1Decimals
             ),
             timestamp: timestampBigInt > 0n ? formatTimestamp(timestampBigInt) : 'Unknown',
             txHash: tx.hash || '',

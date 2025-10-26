@@ -9,9 +9,9 @@ export const PostFeed = () => {
   const { address } = useAccount();
   const { posts, isLoading, error, total, hasMore, loadMore, refetch } = useFeedPosts(sort, 20, address);
 
-  // Auto-refresh every 30s
+  // Auto-refresh every 2 minutes (reduced from 30s to minimize API calls for price feeds)
   useEffect(() => {
-    const interval = setInterval(refetch, 30000);
+    const interval = setInterval(refetch, 120000);
     return () => clearInterval(interval);
   }, [refetch]);
 

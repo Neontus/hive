@@ -35,17 +35,26 @@ export function useFeedPosts(sort: 'recent' | 'pnl' | 'tipped' = 'recent', pageS
     [sort, pageSize, offset, viewerWallet]
   );
 
+  // Initial load on mount and when sort changes
+  useEffect(() => {
+    setOffset(0);
+    loadPosts(true);
+  }, [sort, loadPosts]);
+
   // Refetch when viewer wallet changes
   useEffect(() => {
     setOffset(0);
     loadPosts(true);
-  }, [viewerWallet]);
+  }, [viewerWallet, loadPosts]);
 
-  // Refetch when sort changes
+  // Poll for updates every 60 seconds
   useEffect(() => {
-    setOffset(0);
-    loadPosts(true);
-  }, [sort]);
+    const interval = setInterval(() => {
+      loadPosts(true);
+    }, 60000); // 60 seconds
+
+    return () => clearInterval(interval);
+  }, [loadPosts]);
 
   const refetch = useCallback(() => {
     loadPosts(true);

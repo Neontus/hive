@@ -79,6 +79,8 @@ export const TipModal = ({ post, isOpen, onClose, onSuccess }: TipModalProps) =>
             tx_hash: hash,
           });
           setTipRecorded(true);
+          // Trigger callback to refresh feed posts (which will update viewer_has_tipped)
+          onSuccess?.();
         } catch (err) {
           setError(`Failed to record tip: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
@@ -86,7 +88,7 @@ export const TipModal = ({ post, isOpen, onClose, onSuccess }: TipModalProps) =>
 
       recordTip();
     }
-  }, [isSuccess, tipRecorded, hash, address, post.id]);
+  }, [isSuccess, tipRecorded, hash, address, post.id, onSuccess]);
 
   if (!isOpen) return null;
 

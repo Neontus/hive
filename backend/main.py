@@ -418,15 +418,12 @@ async def get_swaps(
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
 
     try:
+        user_address_lower = address.lower()
+
         # Support both Uniswap V3 and V4 swap topics
         swap_topic_v4 = "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f"
         swap_topic_v3 = "0xc42079f94a6350d7e6235f29174924f7e02e2149c267a8b7d8f3cb1aca6b266b"
         contract_addresses = [addr.lower() for addr in ALL_CONTRACT_ADDRESSES]
-
-        log_selection = hypersync.LogSelection(
-            address=contract_addresses,
-            topics=[[swap_topic_v4, swap_topic_v3]]
-        )
 
         field_selection = hypersync.FieldSelection(
             block=[
@@ -456,46 +453,72 @@ async def get_swaps(
             ]
         )
 
-        query = hypersync.Query(
+        # Step 1: Query ONLY user's transactions (no logs yet)
+        print(f"[API] Step 1: Querying transactions from {user_address_lower}")
+
+        tx_selection = hypersync.TransactionSelection(
+            from_=[user_address_lower]
+        )
+
+        tx_query = hypersync.Query(
+            transactions=[tx_selection],
+            from_block=fromBlock,
+            field_selection=field_selection
+        )
+
+        tx_res = await app.state.hypersync_client.get(tx_query)
+
+        print(f"[API] Got {len(tx_res.data.transactions)} transactions from user")
+
+        # Build set of user's transaction indices
+        user_tx_indices = set()
+        for tx in tx_res.data.transactions:
+            if hasattr(tx, 'block_number') and hasattr(tx, 'transaction_index'):
+                key = (tx.block_number, tx.transaction_index)
+                user_tx_indices.add(key)
+                print(f"[API]   User tx: block={tx.block_number}, idx={tx.transaction_index}")
+
+        # Step 2: Query for logs from swap contracts and filter by user's transaction indices
+        print(f"[API] Step 2: Querying swap logs")
+
+        log_selection = hypersync.LogSelection(
+            address=contract_addresses,
+            topics=[[swap_topic_v4, swap_topic_v3]]
+        )
+
+        log_query = hypersync.Query(
             logs=[log_selection],
             from_block=fromBlock,
             field_selection=field_selection
         )
 
-        res = await app.state.hypersync_client.get(query)
+        log_res = await app.state.hypersync_client.get(log_query)
 
-        print(f"[API] Processing {len(res.data.logs)} logs for address {address}")
+        print(f"[API] Got {len(log_res.data.logs)} total logs from swap contracts")
 
-        user_address_lower = address.lower()
+        # Filter logs to ONLY those from user's transactions
         filtered_logs = []
-
-        # Create transaction lookup map: (block_number, transaction_index) -> transaction
-        tx_lookup = {}
-        for tx in res.data.transactions:
-            if hasattr(tx, 'block_number') and hasattr(tx, 'transaction_index'):
-                key = (tx.block_number, tx.transaction_index)
-                tx_lookup[key] = tx
-
-        # Match logs to transactions and filter by user address
-        for log in res.data.logs:
+        for log in log_res.data.logs:
             if not hasattr(log, 'block_number') or not hasattr(log, 'transaction_index'):
                 continue
 
             key = (log.block_number, log.transaction_index)
-            tx = tx_lookup.get(key)
 
-            if tx is None:
-                continue
-
-            # HyperSync uses 'from_' because 'from' is a Python keyword
-            tx_from = getattr(tx, 'from_', None)
-            if isinstance(tx_from, bytes):
-                tx_from = '0x' + tx_from.hex()
-
-            if tx_from and tx_from.lower() == user_address_lower:
+            # ONLY include logs that are in the user's transaction indices
+            if key in user_tx_indices:
                 filtered_logs.append(log)
+                print(f"[API]   Matching log: block={log.block_number}, idx={log.transaction_index}")
 
-        print(f"[API] Found {len(filtered_logs)} swaps")
+        print(f"[API] Found {len(filtered_logs)} swaps from user's transactions")
+
+        # Combine the data from both queries
+        res = type('obj', (object,), {
+            'data': type('obj', (object,), {
+                'logs': filtered_logs,
+                'transactions': tx_res.data.transactions,
+                'blocks': log_res.data.blocks
+            })()
+        })()
 
         # Create block lookup map for timestamps
         block_lookup = {}
@@ -806,10 +829,12 @@ async def get_posted_hashes():
 async def get_posts(
     sort: str = Query("recent", regex="^(recent|pnl|tipped)$"),
     limit: int = Query(20, ge=1, le=50),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    viewer_wallet: str = Query(None)
 ):
-    """Fetch feed with calculated P&L"""
+    """Fetch feed with calculated P&L and viewer tip status"""
     try:
+        print(f"[API] GET /api/posts: viewer_wallet={viewer_wallet}")
         # Query posts from Supabase
         loop = asyncio.get_event_loop()
         posts_result = await loop.run_in_executor(
@@ -856,6 +881,26 @@ async def get_posts(
             except Exception as e:
                 print(f"[API] Error fetching trader wallet: {str(e)}")
                 enriched_post['trader_wallet_address'] = None
+
+            # Check if viewer has tipped this post
+            enriched_post['viewer_has_tipped'] = False
+            if viewer_wallet:
+                try:
+                    print(f"[API] Checking if {viewer_wallet} tipped post {post_id}")
+                    tips_result = await loop.run_in_executor(
+                        None,
+                        lambda: app.state.supabase.table('tips')
+                            .select('*')
+                            .eq('post_id', post_id)
+                            .eq('tipper_address', viewer_wallet.lower())
+                            .execute()
+                    )
+                    has_tipped = len(tips_result.data) > 0 if tips_result.data else False
+                    enriched_post['viewer_has_tipped'] = has_tipped
+                    print(f"[API]   Result: viewer_has_tipped={has_tipped}, tips_found={len(tips_result.data) if tips_result.data else 0}")
+                except Exception as e:
+                    print(f"[API] Error checking viewer tips for post {post_id}: {str(e)}")
+                    enriched_post['viewer_has_tipped'] = False
 
             try:
                 # Get entry price from Pyth
@@ -933,7 +978,7 @@ async def get_posts(
 
                         if cache_key in app.state.price_cache:
                             cached_price, cached_time = app.state.price_cache[cache_key]
-                            if now - cached_time < 10:  # 10 second cache
+                            if now - cached_time < 300:  # 5 minute cache (300 seconds)
                                 current_price = cached_price
                                 print(f"[API]   Using cached current price: {current_price}")
                             else:
@@ -949,7 +994,9 @@ async def get_posts(
                                 print(f"[API]   price_data: {price_data}")
                                 current_price = price_data['price'] if price_data else None
                                 print(f"[API]   Current price: {current_price}")
-                                app.state.price_cache[cache_key] = (current_price, now)
+                                # Only cache if price was successfully fetched
+                                if current_price is not None:
+                                    app.state.price_cache[cache_key] = (current_price, now)
                         else:
                             # Fetch and cache
                             print(f"[API]   Fetching initial price for feed {entry_feed_id}")
@@ -963,7 +1010,9 @@ async def get_posts(
                             print(f"[API]   price_data: {price_data}")
                             current_price = price_data['price'] if price_data else None
                             print(f"[API]   Current price: {current_price}")
-                            app.state.price_cache[cache_key] = (current_price, now)
+                            # Only cache if price was successfully fetched
+                            if current_price is not None:
+                                app.state.price_cache[cache_key] = (current_price, now)
                     else:
                         current_price = None
                         print(f"[API]   No feed ID found for token_out")
